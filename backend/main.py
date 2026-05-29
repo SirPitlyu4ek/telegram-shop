@@ -4,7 +4,9 @@ from sqlalchemy.orm import Session
 
 from database import SessionLocal
 from models import Product, Order
+
 from integrations.salesdrive import send_order_to_salesdrive
+from integrations.novaposhta import search_cities, get_warehouses
 
 app = FastAPI()
 
@@ -80,7 +82,10 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_order)
 
-    salesdrive_result = send_order_to_salesdrive(new_order, product)
+    salesdrive_result = send_order_to_salesdrive(
+        new_order,
+        product
+    )
 
     return {
         "id": new_order.id,
@@ -130,3 +135,13 @@ def get_orders(db: Session = Depends(get_db)):
         })
 
     return result
+
+
+@app.get("/novaposhta/cities")
+def novaposhta_cities(city: str):
+    return search_cities(city)
+
+
+@app.get("/novaposhta/warehouses")
+def novaposhta_warehouses(city_ref: str):
+    return get_warehouses(city_ref)
