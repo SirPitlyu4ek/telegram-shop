@@ -7,6 +7,7 @@ from models import Product, Order
 
 from integrations.salesdrive import send_order_to_salesdrive
 from integrations.novaposhta import search_cities, get_warehouses
+from integrations.rozetka_delivery import get_rozetka_cities, get_rozetka_departments
 
 app = FastAPI()
 
@@ -145,3 +146,13 @@ def novaposhta_cities(city: str):
 @app.get("/novaposhta/warehouses")
 def novaposhta_warehouses(city_ref: str):
     return get_warehouses(city_ref)
+
+
+@app.get("/rozetka/cities")
+def rozetka_cities():
+    return get_rozetka_cities()
+
+
+@app.get("/rozetka/departments")
+def rozetka_departments(city_id: str):
+    return get_rozetka_departments(city_id)
