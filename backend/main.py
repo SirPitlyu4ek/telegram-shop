@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from database import SessionLocal
 from models import Product, Order
+from integrations.salesdrive import send_order_to_salesdrive
 
 app = FastAPI()
 
@@ -79,6 +80,8 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_order)
 
+    salesdrive_result = send_order_to_salesdrive(new_order, product)
+
     return {
         "id": new_order.id,
         "customer_name": new_order.customer_name,
@@ -96,7 +99,8 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
         "warehouse": new_order.warehouse,
         "payment_method": new_order.payment_method,
         "comment": new_order.comment,
-        "status": new_order.status
+        "status": new_order.status,
+        "salesdrive": salesdrive_result
     }
 
 
