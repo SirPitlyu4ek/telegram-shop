@@ -57,7 +57,32 @@ def create_payment_url(order, product):
         "productName[]": product_name,
         "productCount[]": product_count,
         "productPrice[]": product_price,
-        "language": "UA"
+        "language": "UA",
+        "serviceUrl": "https://bungee-spleen-dealmaker.ngrok-free.dev/wayforpay/callback"
     }
 
     return "https://secure.wayforpay.com/pay/get?" + urlencode(params)
+
+def generate_wayforpay_callback_signature(data: dict) -> str:
+    signature_data = [
+        data.get("merchantAccount", ""),
+        data.get("orderReference", ""),
+        str(data.get("amount", "")),
+        data.get("currency", ""),
+        data.get("authCode", ""),
+        data.get("cardPan", ""),
+        data.get("transactionStatus", ""),
+        str(data.get("reasonCode", ""))
+    ]
+
+    return generate_wayforpay_signature(signature_data)
+
+
+def generate_wayforpay_accept_signature(order_reference: str, status: str, timestamp: int) -> str:
+    signature_data = [
+        order_reference,
+        status,
+        str(timestamp)
+    ]
+
+    return generate_wayforpay_signature(signature_data)

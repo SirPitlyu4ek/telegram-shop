@@ -4,11 +4,19 @@ from sqlalchemy.orm import Session
 
 from database import SessionLocal
 from models import Product, Order
+from typing import Literal
 
 from integrations.salesdrive import send_order_to_salesdrive
 from integrations.novaposhta import search_cities, get_warehouses
 from integrations.rozetka_delivery import get_rozetka_cities, get_rozetka_departments
-from integrations.wayforpay import create_payment_url
+import time
+from fastapi import Request
+
+from integrations.wayforpay import (
+    create_payment_url,
+    generate_wayforpay_callback_signature,
+    generate_wayforpay_accept_signature
+)
 
 app = FastAPI()
 
@@ -22,9 +30,9 @@ class OrderCreate(BaseModel):
     quantity: int
     city: str | None = None
     warehouse: str | None = None
-    payment_method: str | None = None
+    payment_method: Literal["Накладений платіж", "WayForPay", "Оплата на рахунок"]
     comment: str | None = None
-    shipping_method: str | None = None
+    shipping_method: Literal["novaposhta", "rozetka", "ukrposhta"]
 
 
 def get_db():
@@ -184,4 +192,48 @@ def get_order_payment_url(order_id: int, db: Session = Depends(get_db)):
         "order_id": order.id,
         "payment_status": order.payment_status,
         "payment_url": payment_url
+    }
+
+
+@app.post("/wayforpay/callback")
+async def wayforpay_callback(request: Request, db: Session = Depends(get_db)):
+    data = await request.json()
+
+    order_reference = data.get("orderReference")
+    transaction_status = data.get("transactionStatus")
+    received_signature = data.get("merchantSignature")
+
+    expected_signature = generate_wayforpay_callback_signature(data)
+
+    if received_signature != expected_signature:
+        return {"error": "Invalid signature"}
+
+    if not order_reference:
+        return {"error": "Missing orderReference"}
+
+    order_id = order_reference.replace("ORDER-", "")
+
+    order = db.query(Order).filter(Order.id == int(order_id)).first()
+
+    if order is None:
+        return {"error": "Order not found"}
+
+    if transaction_status == "Approved":
+        order.payment_status = "Оплачений"
+        db.commit()
+        db.refresh(order)
+
+    response_time = int(time.time())
+    response_status = "accept"
+    response_signature = generate_wayforpay_accept_signature(
+        order_reference,
+        response_status,
+        response_time
+    )
+
+    return {
+        "orderReference": order_reference,
+        "status": response_status,
+        "time": response_time,
+        "signature": response_signature
     }
