@@ -8,6 +8,7 @@ from models import Product, Order
 from integrations.salesdrive import send_order_to_salesdrive
 from integrations.novaposhta import search_cities, get_warehouses
 from integrations.rozetka_delivery import get_rozetka_cities, get_rozetka_departments
+from integrations.wayforpay import create_payment_url
 
 app = FastAPI()
 
@@ -162,3 +163,23 @@ def rozetka_cities():
 @app.get("/rozetka/departments")
 def rozetka_departments(city_id: str):
     return get_rozetka_departments(city_id)
+
+
+@app.get("/orders/{order_id}/payment-url")
+def get_order_payment_url(order_id: int, db: Session = Depends(get_db)):
+    order = db.query(Order).filter(Order.id == order_id).first()
+
+    if order is None:
+        return {"error": "Order not found"}
+
+    product = db.query(Product).filter(Product.id == order.product_id).first()
+
+    if product is None:
+        return {"error": "Product not found"}
+
+    payment_url = create_payment_url(order, product)
+
+    return {
+        "order_id": order.id,
+        "payment_url": payment_url
+    }
