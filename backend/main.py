@@ -23,6 +23,7 @@ class OrderCreate(BaseModel):
     warehouse: str | None = None
     payment_method: str | None = None
     comment: str | None = None
+    shipping_method: str | None = None
 
 
 def get_db():
@@ -59,6 +60,9 @@ def get_products(db: Session = Depends(get_db)):
 def create_order(order: OrderCreate, db: Session = Depends(get_db)):
     product = db.query(Product).filter(Product.id == order.product_id).first()
 
+    if order.shipping_method == "ukrposhta" and order.payment_method == "Накладений платіж":
+        return {"error": "Для Укрпошти доступна тільки повна передоплата"}
+
     if product is None:
         return {"error": "Product not found"}
 
@@ -76,7 +80,9 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
         warehouse=order.warehouse,
         payment_method=order.payment_method,
         comment=order.comment,
+        shipping_method=order.shipping_method,
         status="new"
+        
     )
 
     db.add(new_order)

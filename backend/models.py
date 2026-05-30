@@ -29,3 +29,4 @@ class Order(Base):
     comment = Column(String, nullable=True)
 
     status = Column(String, default="new")
+    shipping_method = Column(String, nullable=True)

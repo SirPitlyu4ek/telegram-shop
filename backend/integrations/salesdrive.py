@@ -28,7 +28,7 @@ def send_order_to_salesdrive(order, product):
         ],
 
         "payment_method": order.payment_method or "Не вказано",
-        "shipping_method": "novaposhta",
+       "shipping_method": order.shipping_method or "novaposhta",
         "shipping_address": f"{order.city}, {order.warehouse}",
 
         "comment": order.comment or "",
