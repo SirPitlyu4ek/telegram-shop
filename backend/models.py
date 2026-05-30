@@ -30,3 +30,4 @@ class Order(Base):
 
     status = Column(String, default="new")
     shipping_method = Column(String, nullable=True)
+    payment_status = Column(String, default="Не оплачений")

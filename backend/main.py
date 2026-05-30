@@ -61,11 +61,11 @@ def get_products(db: Session = Depends(get_db)):
 def create_order(order: OrderCreate, db: Session = Depends(get_db)):
     product = db.query(Product).filter(Product.id == order.product_id).first()
 
-    if order.shipping_method == "ukrposhta" and order.payment_method == "Накладений платіж":
-        return {"error": "Для Укрпошти доступна тільки повна передоплата"}
-
     if product is None:
         return {"error": "Product not found"}
+
+    if order.shipping_method == "ukrposhta" and order.payment_method == "Накладений платіж":
+        return {"error": "Для Укрпошти доступна тільки повна передоплата"}
 
     total_price = product.price * order.quantity
 
@@ -82,18 +82,15 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
         payment_method=order.payment_method,
         comment=order.comment,
         shipping_method=order.shipping_method,
-        status="new"
-        
+        status="Новий",
+        payment_status="Не оплачений"
     )
 
     db.add(new_order)
     db.commit()
     db.refresh(new_order)
 
-    salesdrive_result = send_order_to_salesdrive(
-        new_order,
-        product
-    )
+    salesdrive_result = send_order_to_salesdrive(new_order, product)
 
     return {
         "id": new_order.id,
@@ -108,9 +105,11 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
         },
         "quantity": new_order.quantity,
         "total_price": new_order.total_price,
+        "shipping_method": new_order.shipping_method,
         "city": new_order.city,
         "warehouse": new_order.warehouse,
         "payment_method": new_order.payment_method,
+        "payment_status": new_order.payment_status,
         "comment": new_order.comment,
         "status": new_order.status,
         "salesdrive": salesdrive_result
@@ -135,9 +134,11 @@ def get_orders(db: Session = Depends(get_db)):
             "product": product.name if product else None,
             "quantity": order.quantity,
             "total_price": order.total_price,
+            "shipping_method": order.shipping_method,
             "city": order.city,
             "warehouse": order.warehouse,
             "payment_method": order.payment_method,
+            "payment_status": order.payment_status,
             "comment": order.comment,
             "status": order.status
         })
@@ -181,5 +182,6 @@ def get_order_payment_url(order_id: int, db: Session = Depends(get_db)):
 
     return {
         "order_id": order.id,
+        "payment_status": order.payment_status,
         "payment_url": payment_url
     }
