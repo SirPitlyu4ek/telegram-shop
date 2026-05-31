@@ -47,3 +47,31 @@ def send_order_to_salesdrive(order, product):
         "status_code": response.status_code,
         "response": response.text
     }
+
+def notify_salesdrive_payment(order):
+    url = f"https://{SALESDRIVE_DOMAIN}/handler/"
+
+    payload = {
+        "form": SALESDRIVE_API_KEY,
+        "getResultData": 1,
+        "externalId": f"PAYMENT-{order.id}",
+        "fName": order.customer_name,
+        "phone": order.phone,
+        "payment_method": order.payment_method,
+        "comment": (
+            f"Оплату отримано через WayForPay\n"
+            f"ID замовлення в backend: {order.id}\n"
+            f"Сума: {order.total_price} грн\n"
+            f"Статус оплати: {order.payment_status}"
+        ),
+        "utmSource": "telegram",
+        "utmMedium": "payment_callback",
+        "utmCampaign": "wayforpay_paid"
+    }
+
+    response = requests.post(url, json=payload, timeout=15)
+
+    return {
+        "status_code": response.status_code,
+        "response": response.text
+    }

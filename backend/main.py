@@ -6,7 +6,7 @@ from database import SessionLocal
 from models import Product, Order
 from typing import Literal
 
-from integrations.salesdrive import send_order_to_salesdrive
+from integrations.salesdrive import send_order_to_salesdrive, notify_salesdrive_payment
 from integrations.novaposhta import search_cities, get_warehouses
 from integrations.rozetka_delivery import get_rozetka_cities, get_rozetka_departments
 import time
@@ -222,6 +222,8 @@ async def wayforpay_callback(request: Request, db: Session = Depends(get_db)):
         order.payment_status = "Оплачений"
         db.commit()
         db.refresh(order)
+        
+        notify_salesdrive_payment(order)
 
     response_time = int(time.time())
     response_status = "accept"
