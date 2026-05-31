@@ -9,6 +9,7 @@ from typing import Literal
 from integrations.salesdrive import send_order_to_salesdrive, notify_salesdrive_payment
 from integrations.novaposhta import search_cities, get_warehouses
 from integrations.rozetka_delivery import get_rozetka_cities, get_rozetka_departments
+import json
 import time
 from fastapi import Request
 
@@ -99,6 +100,16 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
     db.refresh(new_order)
 
     salesdrive_result = send_order_to_salesdrive(new_order, product)
+    try:
+        salesdrive_response = json.loads(salesdrive_result["response"])
+        
+        if salesdrive_response.get("success"):
+            new_order.salesdrive_order_id = salesdrive_response["data"]["orderId"]
+            db.commit()
+            db.refresh(new_order)
+        
+    except Exception:
+        pass
 
     return {
         "id": new_order.id,
@@ -120,7 +131,8 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
         "payment_status": new_order.payment_status,
         "comment": new_order.comment,
         "status": new_order.status,
-        "salesdrive": salesdrive_result
+        "salesdrive": salesdrive_result,
+        "salesdrive_order_id": new_order.salesdrive_order_id,
     }
 
 
@@ -148,7 +160,8 @@ def get_orders(db: Session = Depends(get_db)):
             "payment_method": order.payment_method,
             "payment_status": order.payment_status,
             "comment": order.comment,
-            "status": order.status
+            "status": order.status,
+            "salesdrive_order_id": order.salesdrive_order_id,
         })
 
     return result
@@ -222,7 +235,7 @@ async def wayforpay_callback(request: Request, db: Session = Depends(get_db)):
         order.payment_status = "Оплачений"
         db.commit()
         db.refresh(order)
-        
+
         notify_salesdrive_payment(order)
 
     response_time = int(time.time())
