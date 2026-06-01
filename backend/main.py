@@ -6,7 +6,13 @@ from database import SessionLocal
 from models import Product, Order
 from typing import Literal
 
-from integrations.salesdrive import send_order_to_salesdrive, notify_salesdrive_payment
+from integrations.salesdrive import (
+    send_order_to_salesdrive,
+    notify_salesdrive_payment,
+    update_salesdrive_payment_status,
+    set_salesdrive_payment_unpaid
+)
+
 from integrations.novaposhta import search_cities, get_warehouses
 from integrations.rozetka_delivery import get_rozetka_cities, get_rozetka_departments
 import json
@@ -107,6 +113,9 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
             new_order.salesdrive_order_id = salesdrive_response["data"]["orderId"]
             db.commit()
             db.refresh(new_order)
+            
+            unpaid_result = set_salesdrive_payment_unpaid(new_order)
+            print("SalesDrive unpaid status:", unpaid_result)
         
     except Exception:
         pass
@@ -235,8 +244,12 @@ async def wayforpay_callback(request: Request, db: Session = Depends(get_db)):
         order.payment_status = "Оплачений"
         db.commit()
         db.refresh(order)
-
-        notify_salesdrive_payment(order)
+        
+        if order.salesdrive_order_id:
+            salesdrive_update_result = update_salesdrive_payment_status(order)
+            print("SalesDrive payment status update:", salesdrive_update_result)
+        else:
+            notify_salesdrive_payment(order)
 
     response_time = int(time.time())
     response_status = "accept"

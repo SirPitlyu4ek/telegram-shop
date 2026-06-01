@@ -18,6 +18,10 @@ def send_order_to_salesdrive(order, product):
         "fName": order.customer_name,
         "phone": order.phone,
 
+        "data": {
+    "attribute_90": "id_65"
+    },
+
         "products": [
             {
                 "name": product.name,
@@ -70,6 +74,59 @@ def notify_salesdrive_payment(order):
     }
 
     response = requests.post(url, json=payload, timeout=15)
+
+    return {
+        "status_code": response.status_code,
+        "response": response.text
+    }
+
+def add_payment_note_to_salesdrive(order):
+    url = f"https://{SALESDRIVE_DOMAIN}/api/order/note/"
+
+    payload = {
+        "form": SALESDRIVE_API_KEY,
+        "id": order.salesdrive_order_id,
+        "note": (
+            f"Оплату отримано через WayForPay\n"
+            f"ID замовлення в backend: {order.id}\n"
+            f"Сума: {order.total_price} грн\n"
+            f"Статус оплати: {order.payment_status}"
+        )
+    }
+
+    response = requests.post(url, json=payload, timeout=15)
+
+    return {
+        "status_code": response.status_code,
+        "response": response.text
+    }
+
+def update_salesdrive_payment_status(order):
+    url = f"https://{SALESDRIVE_DOMAIN}/api/order/update/"
+
+    payload = {
+        "form": SALESDRIVE_API_KEY,
+        "id": order.salesdrive_order_id,
+        "data[statusOplati2]": "id_66"
+    }
+
+    response = requests.post(url, data=payload, timeout=15)
+
+    return {
+        "status_code": response.status_code,
+        "response": response.text
+    }
+
+def set_salesdrive_payment_unpaid(order):
+    url = f"https://{SALESDRIVE_DOMAIN}/api/order/update/"
+
+    payload = {
+        "form": SALESDRIVE_API_KEY,
+        "id": order.salesdrive_order_id,
+        "data[statusOplati2]": "id_65"
+    }
+
+    response = requests.post(url, data=payload, timeout=15)
 
     return {
         "status_code": response.status_code,
