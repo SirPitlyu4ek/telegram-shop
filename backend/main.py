@@ -30,13 +30,18 @@ app = FastAPI()
 
 class OrderCreate(BaseModel):
     customer_name: str
+    last_name: str | None = None
+    middle_name: str | None = None
     phone: str
+    email: str | None = None
     telegram_id: str | None = None
     telegram_username: str | None = None
     product_id: int
     quantity: int
     city: str | None = None
     warehouse: str | None = None
+    city_ref: str | None = None
+    warehouse_ref: str | None = None
     payment_method: Literal["Накладений платіж", "WayForPay", "Оплата на рахунок"]
     comment: str | None = None
     shipping_method: Literal["novaposhta", "rozetka", "ukrposhta"]
@@ -86,7 +91,10 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
 
     new_order = Order(
         customer_name=order.customer_name,
+        last_name=order.last_name,
+        middle_name=order.middle_name,
         phone=order.phone,
+        email=order.email,
         telegram_id=order.telegram_id,
         telegram_username=order.telegram_username,
         product_id=order.product_id,
@@ -94,6 +102,8 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
         total_price=total_price,
         city=order.city,
         warehouse=order.warehouse,
+        city_ref=order.city_ref,
+        warehouse_ref=order.warehouse_ref,
         payment_method=order.payment_method,
         comment=order.comment,
         shipping_method=order.shipping_method,
@@ -123,7 +133,10 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
     return {
         "id": new_order.id,
         "customer_name": new_order.customer_name,
+        "last_name": new_order.last_name,
+        "middle_name": new_order.middle_name,
         "phone": new_order.phone,
+        "email": new_order.email,
         "telegram_id": new_order.telegram_id,
         "telegram_username": new_order.telegram_username,
         "product": {
@@ -136,6 +149,8 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
         "shipping_method": new_order.shipping_method,
         "city": new_order.city,
         "warehouse": new_order.warehouse,
+        "city_ref": new_order.city_ref,
+        "warehouse_ref": new_order.warehouse_ref,
         "payment_method": new_order.payment_method,
         "payment_status": new_order.payment_status,
         "comment": new_order.comment,
@@ -157,7 +172,10 @@ def get_orders(db: Session = Depends(get_db)):
         result.append({
             "id": order.id,
             "customer_name": order.customer_name,
+            "last_name": order.last_name,
+            "middle_name": order.middle_name,
             "phone": order.phone,
+            "email": order.email,
             "telegram_id": order.telegram_id,
             "telegram_username": order.telegram_username,
             "product": product.name if product else None,
@@ -166,6 +184,8 @@ def get_orders(db: Session = Depends(get_db)):
             "shipping_method": order.shipping_method,
             "city": order.city,
             "warehouse": order.warehouse,
+            "city_ref": order.city_ref,
+            "warehouse_ref": order.warehouse_ref,
             "payment_method": order.payment_method,
             "payment_status": order.payment_status,
             "comment": order.comment,

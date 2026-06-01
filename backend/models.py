@@ -13,8 +13,11 @@ class Order(Base):
     __tablename__ = "orders"
 
     id = Column(Integer, primary_key=True, index=True)
+    last_name = Column(String, nullable=True)
+    middle_name = Column(String, nullable=True)
     customer_name = Column(String, nullable=False)
     phone = Column(String, nullable=False)
+    email = Column(String, nullable=True)
 
     telegram_id = Column(String, nullable=True)
     telegram_username = Column(String, nullable=True)
@@ -25,6 +28,10 @@ class Order(Base):
 
     city = Column(String, nullable=True)
     warehouse = Column(String, nullable=True)
+    
+    city_ref = Column(String, nullable=True)
+    warehouse_ref = Column(String, nullable=True)
+   
     payment_method = Column(String, nullable=True)
     comment = Column(String, nullable=True)
 

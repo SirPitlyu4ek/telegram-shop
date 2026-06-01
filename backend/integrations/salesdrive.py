@@ -11,67 +11,66 @@ SALESDRIVE_DOMAIN = os.getenv("SALESDRIVE_DOMAIN")
 def send_order_to_salesdrive(order, product):
     url = f"https://{SALESDRIVE_DOMAIN}/handler/"
 
+    shipping_method_names = {
+        "novaposhta": "Нова пошта",
+        "rozetka": "Rozetka Delivery",
+        "ukrposhta": "Укрпошта"
+    }
+
+    shipping_method_name = shipping_method_names.get(
+        order.shipping_method,
+        order.shipping_method
+    )
+
     payload = {
         "form": SALESDRIVE_API_KEY,
         "getResultData": 1,
 
         "fName": order.customer_name,
+        "lName": order.last_name or "",
+        "mName": order.middle_name or "",
         "phone": order.phone,
-
-        "data": {
-    "attribute_90": "id_65"
-    },
+        "email": order.email or "",
 
         "products": [
             {
+                "id": str(product.id),
                 "name": product.name,
-                "costPerItem": product.price,
-                "amount": order.quantity,
-                "description": "Товар із Telegram-магазину"
+                "costPerItem": int(product.price),
+                "amount": int(order.quantity),
+                "description": "Товар із Telegram-магазину",
+                "sku": str(product.id)
             }
         ],
 
-        "payment_method": order.payment_method or "Не вказано",
-       "shipping_method": order.shipping_method or "novaposhta",
+        "payment_method": order.payment_method,
+        "shipping_method": order.shipping_method,
         "shipping_address": f"{order.city}, {order.warehouse}",
 
-        "comment": order.comment or "",
-        "externalId": str(order.id),
-        "sajt": "Telegram Mini App",
-        "con_telegram": order.telegram_username or "",
+        "comment": (
+            f"{order.comment or ''}\n\n"
+            f"Спосіб доставки: {shipping_method_name}\n"
+            f"Місто: {order.city}\n"
+            f"Відділення: {order.warehouse}"
+        ),
 
+        "externalId": str(order.id),
+
+        "sajt": "Telegram Mini App",
         "utmSource": "telegram",
         "utmMedium": "bot",
-        "utmCampaign": "telegram_shop"
+        "utmCampaign": "telegram_shop",
+
+        "con_telegram": order.telegram_username or ""
     }
 
-    response = requests.post(url, json=payload, timeout=15)
-
-    return {
-        "status_code": response.status_code,
-        "response": response.text
-    }
-
-def notify_salesdrive_payment(order):
-    url = f"https://{SALESDRIVE_DOMAIN}/handler/"
-
-    payload = {
-        "form": SALESDRIVE_API_KEY,
-        "getResultData": 1,
-        "externalId": f"PAYMENT-{order.id}",
-        "fName": order.customer_name,
-        "phone": order.phone,
-        "payment_method": order.payment_method,
-        "comment": (
-            f"Оплату отримано через WayForPay\n"
-            f"ID замовлення в backend: {order.id}\n"
-            f"Сума: {order.total_price} грн\n"
-            f"Статус оплати: {order.payment_status}"
-        ),
-        "utmSource": "telegram",
-        "utmMedium": "payment_callback",
-        "utmCampaign": "wayforpay_paid"
-    }
+    if order.shipping_method == "novaposhta":
+        payload["novaposhta"] = {
+            "ServiceType": "Warehouse",
+            "payer": "sender",
+            "city": order.city_ref,
+            "WarehouseNumber": order.warehouse_ref
+        }
 
     response = requests.post(url, json=payload, timeout=15)
 
@@ -127,6 +126,35 @@ def set_salesdrive_payment_unpaid(order):
     }
 
     response = requests.post(url, data=payload, timeout=15)
+
+    return {
+        "status_code": response.status_code,
+        "response": response.text
+    }
+
+def notify_salesdrive_payment(order):
+    url = f"https://{SALESDRIVE_DOMAIN}/handler/"
+
+    payload = {
+        "form": SALESDRIVE_API_KEY,
+        "getResultData": 1,
+        "externalId": f"PAYMENT-{order.id}",
+        "fName": order.customer_name,
+        "lName": order.last_name or "",
+        "phone": order.phone,
+        "payment_method": order.payment_method,
+        "comment": (
+            f"Оплату отримано через WayForPay\n"
+            f"ID замовлення в backend: {order.id}\n"
+            f"Сума: {order.total_price} грн\n"
+            f"Статус оплати: {order.payment_status}"
+        ),
+        "utmSource": "telegram",
+        "utmMedium": "payment_callback",
+        "utmCampaign": "wayforpay_paid"
+    }
+
+    response = requests.post(url, json=payload, timeout=15)
 
     return {
         "status_code": response.status_code,
