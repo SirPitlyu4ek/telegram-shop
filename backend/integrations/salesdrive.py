@@ -97,6 +97,8 @@ def send_order_to_salesdrive(order, product):
 
     if order.shipping_method == "rozetka":
         payload["rozetka_delivery"] = {
+            "city": order.city_ref,
+            "WarehouseNumber": order.warehouse_ref,
             "payer": "recipient"
         }
 
@@ -104,7 +106,10 @@ def send_order_to_salesdrive(order, product):
     if order.shipping_method == "ukrposhta":
         payload["ukrposhta"] = {
             "ServiceType": "Warehouse",
-            "payer": "recipient"
+            "payer": "recipient",
+            "type": "express",
+            "city": order.city_ref,
+            "WarehouseNumber": order.warehouse_ref
         }
 
     response = requests.post(url, json=payload, timeout=15)

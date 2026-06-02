@@ -123,9 +123,12 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
             new_order.salesdrive_order_id = salesdrive_response["data"]["orderId"]
             db.commit()
             db.refresh(new_order)
-            
-            unpaid_result = set_salesdrive_payment_unpaid(new_order)
-            print("SalesDrive unpaid status:", unpaid_result)
+
+            if new_order.payment_method in ["WayForPay", "Оплата на рахунок"]:
+                unpaid_result = set_salesdrive_payment_unpaid(new_order)
+                print("SalesDrive unpaid status:", unpaid_result)
+            else:
+                print("SalesDrive payment status skipped for cash on delivery")
         
     except Exception:
         pass
