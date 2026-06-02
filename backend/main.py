@@ -127,23 +127,51 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_order)
 
-    salesdrive_result = send_order_to_salesdrive(new_order, product)
-    try:
-        salesdrive_response = json.loads(salesdrive_result["response"])
-        
-        if salesdrive_response.get("success"):
-            new_order.salesdrive_order_id = salesdrive_response["data"]["orderId"]
-            db.commit()
-            db.refresh(new_order)
+    salesdrive_result = {
+        "status_code": None,
+        "response": "SalesDrive request was not sent"
+    }
 
-            if new_order.payment_method in ["WayForPay", "Оплата на рахунок"]:
-                unpaid_result = set_salesdrive_payment_unpaid(new_order)
-                print("SalesDrive unpaid status:", unpaid_result)
-            else:
-                print("SalesDrive payment status skipped for cash on delivery")
-        
-    except Exception:
-        pass
+    try:
+        salesdrive_result = send_order_to_salesdrive(new_order, product)
+
+        try:
+            salesdrive_response = json.loads(salesdrive_result["response"])
+
+            if salesdrive_response.get("success"):
+                new_order.salesdrive_order_id = salesdrive_response["data"]["orderId"]
+                db.commit()
+                db.refresh(new_order)
+
+                if new_order.payment_method in ["WayForPay", "Оплата на рахунок"]:
+                    try:
+                        unpaid_result = set_salesdrive_payment_unpaid(new_order)
+                        print("SalesDrive unpaid status:", unpaid_result)
+
+                        salesdrive_result["payment_status_update"] = unpaid_result
+
+                    except Exception as error:
+                        print("SalesDrive unpaid status error:", error)
+
+                        salesdrive_result["payment_status_update"] = {
+                            "status_code": 0,
+                            "response": f"SalesDrive unpaid status error: {str(error)}"
+                        }
+                else:
+                    print("SalesDrive payment status skipped for cash on delivery")
+
+        except Exception as error:
+            print("SalesDrive response parse error:", error)
+            
+            salesdrive_result["parse_error"] = str(error)
+
+    except Exception as error:
+        print("SalesDrive connection error:", error)
+
+        salesdrive_result = {
+            "status_code": 0,
+            "response": f"SalesDrive connection error: {str(error)}"
+        }
 
     return {
         "id": new_order.id,
