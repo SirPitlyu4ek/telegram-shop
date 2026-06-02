@@ -10,16 +10,38 @@ SALESDRIVE_DOMAIN = os.getenv("SALESDRIVE_DOMAIN")
 
 def send_order_to_salesdrive(order, product):
     url = f"https://{SALESDRIVE_DOMAIN}/handler/"
+    
+    shipping_method_parameters = {
+        "novaposhta": "Нова Пошта",
+        "rozetka": "Видача у ROZETKA",
+        "ukrposhta": 'Доставка "Укрпошта"'
+    }
 
     shipping_method_names = {
-        "novaposhta": "Нова пошта",
+        "novaposhta": "Нова Пошта",
         "rozetka": "Rozetka Delivery",
         "ukrposhta": "Укрпошта"
     }
 
+    payment_method_parameters = {
+        "Накладений платіж": "id_13",
+        "WayForPay": "Оплата картой Visa, Mastercard - WayForPay",
+        "Оплата на рахунок": "Оплата на счет"
+    }
+
+    shipping_method_parameter = shipping_method_parameters.get(
+        order.shipping_method,
+        order.shipping_method
+    )
+
     shipping_method_name = shipping_method_names.get(
         order.shipping_method,
         order.shipping_method
+    )
+
+    payment_method_parameter = payment_method_parameters.get(
+        order.payment_method,
+        order.payment_method
     )
 
     payload = {
@@ -43,8 +65,8 @@ def send_order_to_salesdrive(order, product):
             }
         ],
 
-        "payment_method": order.payment_method,
-        "shipping_method": order.shipping_method,
+        "payment_method": payment_method_parameter,
+        "shipping_method": shipping_method_parameter,
         "shipping_address": f"{order.city}, {order.warehouse}",
 
         "comment": (
@@ -67,9 +89,22 @@ def send_order_to_salesdrive(order, product):
     if order.shipping_method == "novaposhta":
         payload["novaposhta"] = {
             "ServiceType": "Warehouse",
-            "payer": "sender",
+            "payer": "recipient",
             "city": order.city_ref,
             "WarehouseNumber": order.warehouse_ref
+        }
+
+
+    if order.shipping_method == "rozetka":
+        payload["rozetka_delivery"] = {
+            "payer": "recipient"
+        }
+
+
+    if order.shipping_method == "ukrposhta":
+        payload["ukrposhta"] = {
+            "ServiceType": "Warehouse",
+            "payer": "recipient"
         }
 
     response = requests.post(url, json=payload, timeout=15)
