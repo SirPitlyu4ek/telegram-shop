@@ -245,8 +245,8 @@ def novaposhta_cities(city: str):
 
 
 @app.get("/novaposhta/warehouses")
-def novaposhta_warehouses(city_ref: str):
-    return get_warehouses(city_ref)
+def novaposhta_warehouses(city_ref: str, limit: int = 500):
+    return get_warehouses(city_ref, limit)
 
 
 @app.get("/rozetka/cities")
