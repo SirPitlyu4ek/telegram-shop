@@ -115,6 +115,10 @@ function App() {
       setOrderForm((prev) => ({
         ...prev,
         shipping_method: value,
+        payment_method:
+          value === "ukrposhta" && prev.payment_method === "Накладений платіж"
+            ? "WayForPay"
+            : prev.payment_method,
         city: "",
         warehouse: "",
         city_ref: "",
@@ -144,7 +148,10 @@ function App() {
       setRozetkaCities([]);
       setRozetkaDepartments([]);
 
-      if (isNovaPoshtaDelivery(orderForm.shipping_method)) {
+      if (
+        isNovaPoshtaDelivery(orderForm.shipping_method) ||
+        isUkrposhtaDelivery(orderForm.shipping_method)
+      ) {
         searchNovaPoshtaCities(value);
       }
 
@@ -225,6 +232,21 @@ function App() {
     }));
   }
 
+  function selectUkrposhtaCity(city) {
+    const cityName = city.Present || city.MainDescription || "";
+
+    setOrderForm((prev) => ({
+      ...prev,
+      city: cityName,
+      city_ref: "",
+      warehouse: "",
+      warehouse_ref: "",
+    }));
+
+    setNpCities([]);
+    setNpWarehouses([]);
+  }
+
   async function searchRozetkaCities(cityName) {
     if (!cityName || cityName.trim().length < 2) {
       setRozetkaCities([]);
@@ -248,17 +270,41 @@ function App() {
 
       const normalizedSearch = cityName.toLowerCase().trim();
 
-      const filteredCities = cities.filter((city) => {
-        const name = String(city.name || city.title || "").toLowerCase();
-        const regionName = String(city.region_name || "").toLowerCase();
-        const districtName = String(city.district_name || "").toLowerCase();
+      function normalizeCityName(value) {
+        return String(value || "")
+          .toLowerCase()
+          .replace(/^м\.\s*/i, "")
+          .replace(/^с\.\s*/i, "")
+          .replace(/^смт\.\s*/i, "")
+          .trim();
+      }
 
-        return (
-          name.includes(normalizedSearch) ||
-          regionName.includes(normalizedSearch) ||
-          districtName.includes(normalizedSearch)
-        );
-      });
+      const filteredCities = cities
+        .filter((city) => {
+          const name = normalizeCityName(city.name || city.title || "");
+
+          return name.includes(normalizedSearch);
+        })
+        .sort((a, b) => {
+          const nameA = normalizeCityName(a.name || a.title || "");
+          const nameB = normalizeCityName(b.name || b.title || "");
+
+          const aExact = nameA === normalizedSearch ? 0 : 1;
+          const bExact = nameB === normalizedSearch ? 0 : 1;
+
+          if (aExact !== bExact) {
+            return aExact - bExact;
+          }
+
+          const aStarts = nameA.startsWith(normalizedSearch) ? 0 : 1;
+          const bStarts = nameB.startsWith(normalizedSearch) ? 0 : 1;
+
+          if (aStarts !== bStarts) {
+            return aStarts - bStarts;
+          }
+
+          return nameA.localeCompare(nameB, "uk");
+        });
 
       setRozetkaCities(filteredCities.slice(0, 30));
     } catch (error) {
@@ -355,7 +401,7 @@ function App() {
     }
 
     if (!orderForm.warehouse.trim()) {
-      setError("Оберіть або введіть відділення / точку видачі");
+      setError("Оберіть або введіть відділення / точку видачі / індекс");
       return;
     }
 
@@ -387,8 +433,15 @@ function App() {
         payment_method: orderForm.payment_method,
         city: orderForm.city,
         warehouse: orderForm.warehouse,
-        city_ref: orderForm.city_ref || null,
-        warehouse_ref: orderForm.warehouse_ref || null,
+
+        city_ref: isUkrposhtaDelivery(orderForm.shipping_method)
+          ? null
+          : orderForm.city_ref || null,
+
+        warehouse_ref: isUkrposhtaDelivery(orderForm.shipping_method)
+          ? orderForm.warehouse.trim()
+          : orderForm.warehouse_ref || null,
+
         comment: orderForm.comment,
       };
 
@@ -568,10 +621,15 @@ function App() {
                     value={orderForm.payment_method}
                     onChange={handleChange}
                   >
-                    <option value="Накладений платіж">
+                    <option
+                      value="Накладений платіж"
+                      disabled={isUkrposhtaDelivery(orderForm.shipping_method)}
+                    >
                       Накладений платіж
                     </option>
+
                     <option value="WayForPay">WayForPay</option>
+
                     <option value="Оплата на рахунок">
                       Оплата на рахунок
                     </option>
@@ -581,7 +639,7 @@ function App() {
 
               <div className="form-row">
                 <label>
-                  Місто
+                  Місто / населений пункт
                   <input
                     name="city"
                     value={orderForm.city}
@@ -591,13 +649,13 @@ function App() {
                         ? "Почніть вводити місто Нової пошти"
                         : isRozetkaDelivery(orderForm.shipping_method)
                         ? "Почніть вводити місто Rozetka"
-                        : "Введіть місто"
+                        : "Почніть вводити місто або село"
                     }
                   />
                 </label>
 
                 <label>
-                  Відділення / точка видачі
+                  Відділення / точка видачі / індекс
                   {isNovaPoshtaDelivery(orderForm.shipping_method) ? (
                     <select
                       value={orderForm.warehouse_ref}
@@ -669,20 +727,29 @@ function App() {
                       name="warehouse"
                       value={orderForm.warehouse}
                       onChange={handleChange}
-                      placeholder="Введіть індекс Укрпошти"
+                      placeholder="Індекс Укрпошти, наприклад: 49000"
                     />
                   )}
                 </label>
               </div>
 
-              {isNovaPoshtaDelivery(orderForm.shipping_method) &&
+              {(isNovaPoshtaDelivery(orderForm.shipping_method) ||
+                isUkrposhtaDelivery(orderForm.shipping_method)) &&
                 npCities.length > 0 && (
                   <div className="suggestions">
                     {npCities.map((city) => (
                       <button
                         type="button"
                         key={city.DeliveryCity || city.Ref}
-                        onClick={() => selectNovaPoshtaCity(city)}
+                        onClick={() => {
+                          if (isNovaPoshtaDelivery(orderForm.shipping_method)) {
+                            selectNovaPoshtaCity(city);
+                          }
+
+                          if (isUkrposhtaDelivery(orderForm.shipping_method)) {
+                            selectUkrposhtaCity(city);
+                          }
+                        }}
                       >
                         {city.Present || city.MainDescription}
                       </button>
