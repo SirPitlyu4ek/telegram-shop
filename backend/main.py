@@ -15,7 +15,8 @@ from integrations.salesdrive import (
 )
 
 from integrations.novaposhta import search_cities, get_warehouses
-from integrations.rozetka_delivery import get_rozetka_cities, get_rozetka_departments
+from integrations.rozetka import search_rozetka_cities, get_rozetka_departments
+from integrations.ukrposhta import search_ukrposhta_cities, get_ukrposhta_offices
 import json
 import time
 from fastapi import Request
@@ -250,6 +251,52 @@ def novaposhta_warehouses(city_ref: str, limit: int = 500):
 
 
 @app.get("/rozetka/cities")
+def rozetka_cities(city: str):
+    return search_rozetka_cities(city)
+
+
+@app.get("/rozetka/departments")
+def rozetka_departments(city_id: str):
+    return get_rozetka_departments(city_id)
+
+
+@app.get("/ukrposhta/cities")
+def ukrposhta_cities(city: str):
+    return search_ukrposhta_cities(city)
+
+
+@app.get("/ukrposhta/offices")
+def ukrposhta_offices(
+    city_id: str = "",
+    city_koatuu: str = "",
+    city_katottg: str = "",
+):
+    return get_ukrposhta_offices(
+        city_id=city_id,
+        city_koatuu=city_koatuu,
+        city_katottg=city_katottg,
+    )
+
+
+@app.get("/ukrposhta/cities")
+def ukrposhta_cities(city: str):
+    return search_ukrposhta_cities(city)
+
+
+@app.get("/ukrposhta/offices")
+def ukrposhta_offices(
+    city_id: str = "",
+    city_koatuu: str = "",
+    city_katottg: str = "",
+):
+    return get_ukrposhta_offices(
+        city_id=city_id,
+        city_koatuu=city_koatuu,
+        city_katottg=city_katottg,
+    )
+
+
+@app.get("/rozetka/cities")
 def rozetka_cities():
     return get_rozetka_cities()
 
@@ -257,6 +304,24 @@ def rozetka_cities():
 @app.get("/rozetka/departments")
 def rozetka_departments(city_id: str):
     return get_rozetka_departments(city_id)
+
+
+@app.get("/ukrposhta/cities")
+def ukrposhta_cities(city: str):
+    return search_ukrposhta_cities(city)
+
+
+@app.get("/ukrposhta/offices")
+def ukrposhta_offices(
+    city_id: str = "",
+    city_koatuu: str = "",
+    city_katottg: str = "",
+):
+    return get_ukrposhta_offices(
+        city_id=city_id,
+        city_koatuu=city_koatuu,
+        city_katottg=city_katottg,
+    )
 
 
 @app.get("/orders/{order_id}/payment-url")

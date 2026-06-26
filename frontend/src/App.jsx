@@ -39,6 +39,9 @@ function App() {
   const [rozetkaCities, setRozetkaCities] = useState([]);
   const [rozetkaDepartments, setRozetkaDepartments] = useState([]);
 
+  const [ukrposhtaCities, setUkrposhtaCities] = useState([]);
+  const [ukrposhtaOffices, setUkrposhtaOffices] = useState([]);
+
   const [deliveryLoading, setDeliveryLoading] = useState(false);
 
   useEffect(() => {
@@ -55,6 +58,23 @@ function App() {
 
   function isUkrposhtaDelivery(method) {
     return method === "ukrposhta";
+  }
+
+  function getTelegramUser() {
+    const telegram = window.Telegram?.WebApp;
+
+    if (!telegram) {
+      return null;
+    }
+
+    try {
+      telegram.ready?.();
+      telegram.expand?.();
+    } catch (error) {
+      console.warn("Telegram WebApp init warning:", error);
+    }
+
+    return telegram.initDataUnsafe?.user || null;
   }
 
   async function loadProducts() {
@@ -78,17 +98,32 @@ function App() {
     }
   }
 
-  function openOrderModal(product) {
-    setSelectedProduct(product);
-    setOrderForm(initialOrderForm);
-    setOrderResult(null);
-    setPaymentUrl("");
-    setError("");
-
+  function resetDeliveryLists() {
     setNpCities([]);
     setNpWarehouses([]);
     setRozetkaCities([]);
     setRozetkaDepartments([]);
+    setUkrposhtaCities([]);
+    setUkrposhtaOffices([]);
+  }
+
+  function openOrderModal(product) {
+    const telegramUser = getTelegramUser();
+
+    setSelectedProduct(product);
+
+    setOrderForm({
+      ...initialOrderForm,
+      customer_name: telegramUser?.first_name || "",
+      last_name: telegramUser?.last_name || "",
+      telegram_id: telegramUser?.id ? String(telegramUser.id) : "",
+      telegram_username: telegramUser?.username || "",
+    });
+
+    setOrderResult(null);
+    setPaymentUrl("");
+    setError("");
+    resetDeliveryLists();
   }
 
   function closeOrderModal() {
@@ -96,21 +131,14 @@ function App() {
     setOrderResult(null);
     setPaymentUrl("");
     setError("");
-
-    setNpCities([]);
-    setNpWarehouses([]);
-    setRozetkaCities([]);
-    setRozetkaDepartments([]);
+    resetDeliveryLists();
   }
 
   function handleChange(event) {
     const { name, value } = event.target;
 
     if (name === "shipping_method") {
-      setNpCities([]);
-      setNpWarehouses([]);
-      setRozetkaCities([]);
-      setRozetkaDepartments([]);
+      resetDeliveryLists();
 
       setOrderForm((prev) => ({
         ...prev,
@@ -143,20 +171,18 @@ function App() {
     }));
 
     if (name === "city") {
-      setNpCities([]);
-      setNpWarehouses([]);
-      setRozetkaCities([]);
-      setRozetkaDepartments([]);
+      resetDeliveryLists();
 
-      if (
-        isNovaPoshtaDelivery(orderForm.shipping_method) ||
-        isUkrposhtaDelivery(orderForm.shipping_method)
-      ) {
+      if (isNovaPoshtaDelivery(orderForm.shipping_method)) {
         searchNovaPoshtaCities(value);
       }
 
       if (isRozetkaDelivery(orderForm.shipping_method)) {
         searchRozetkaCities(value);
+      }
+
+      if (isUkrposhtaDelivery(orderForm.shipping_method)) {
+        searchUkrposhtaCities(value);
       }
     }
   }
@@ -232,19 +258,80 @@ function App() {
     }));
   }
 
-  function selectUkrposhtaCity(city) {
-    const cityName = city.Present || city.MainDescription || "";
+  async function searchUkrposhtaCities(cityName) {
+    if (!cityName || cityName.trim().length < 2) {
+      setUkrposhtaCities([]);
+      return;
+    }
+
+    try {
+      setDeliveryLoading(true);
+
+      const response = await fetch(
+        `${API_URL}/ukrposhta/cities?city=${encodeURIComponent(cityName)}`
+      );
+
+      const data = await response.json();
+
+      setUkrposhtaCities(data?.cities || []);
+    } catch (error) {
+      console.error("Ukrposhta city search error:", error);
+      setUkrposhtaCities([]);
+    } finally {
+      setDeliveryLoading(false);
+    }
+  }
+
+  async function selectUkrposhtaCity(city) {
+    const cityName = city.label || city.name || "";
+    const cityId = city.id || "";
+    const cityKoatuu = city.koatuu || "";
+    const cityKatottg = city.katottg || "";
 
     setOrderForm((prev) => ({
       ...prev,
       city: cityName,
-      city_ref: "",
+      city_ref: cityId,
       warehouse: "",
       warehouse_ref: "",
     }));
 
-    setNpCities([]);
-    setNpWarehouses([]);
+    setUkrposhtaCities([]);
+    setUkrposhtaOffices([]);
+
+    try {
+      setDeliveryLoading(true);
+
+      const params = new URLSearchParams();
+
+      if (cityId) params.append("city_id", cityId);
+      if (cityKoatuu) params.append("city_koatuu", cityKoatuu);
+      if (cityKatottg) params.append("city_katottg", cityKatottg);
+
+      const response = await fetch(
+        `${API_URL}/ukrposhta/offices?${params.toString()}`
+      );
+
+      const data = await response.json();
+
+      setUkrposhtaOffices(data?.offices || []);
+    } catch (error) {
+      console.error("Ukrposhta offices error:", error);
+      setUkrposhtaOffices([]);
+    } finally {
+      setDeliveryLoading(false);
+    }
+  }
+
+  function selectUkrposhtaOffice(office) {
+    const postcode = office.postcode || "";
+    const description = office.description || postcode || "Відділення Укрпошти";
+
+    setOrderForm((prev) => ({
+      ...prev,
+      warehouse: description,
+      warehouse_ref: postcode,
+    }));
   }
 
   async function searchRozetkaCities(cityName) {
@@ -268,21 +355,11 @@ function App() {
         ? data.cities
         : [];
 
-      const normalizedSearch = cityName.toLowerCase().trim();
-
-      function normalizeCityName(value) {
-        return String(value || "")
-          .toLowerCase()
-          .replace(/^м\.\s*/i, "")
-          .replace(/^с\.\s*/i, "")
-          .replace(/^смт\.\s*/i, "")
-          .trim();
-      }
+      const normalizedSearch = normalizeCityName(cityName);
 
       const filteredCities = cities
         .filter((city) => {
           const name = normalizeCityName(city.name || city.title || "");
-
           return name.includes(normalizedSearch);
         })
         .sort((a, b) => {
@@ -313,6 +390,15 @@ function App() {
     } finally {
       setDeliveryLoading(false);
     }
+  }
+
+  function normalizeCityName(value) {
+    return String(value || "")
+      .toLowerCase()
+      .replace(/^м\.\s*/i, "")
+      .replace(/^с\.\s*/i, "")
+      .replace(/^смт\.\s*/i, "")
+      .trim();
   }
 
   async function selectRozetkaCity(city) {
@@ -433,15 +519,12 @@ function App() {
         payment_method: orderForm.payment_method,
         city: orderForm.city,
         warehouse: orderForm.warehouse,
-
         city_ref: isUkrposhtaDelivery(orderForm.shipping_method)
           ? null
           : orderForm.city_ref || null,
-
         warehouse_ref: isUkrposhtaDelivery(orderForm.shipping_method)
-          ? orderForm.warehouse.trim()
+          ? orderForm.warehouse_ref || orderForm.warehouse.trim()
           : orderForm.warehouse_ref || null,
-
         comment: orderForm.comment,
       };
 
@@ -655,7 +738,10 @@ function App() {
                 </label>
 
                 <label>
-                  Відділення / точка видачі / індекс
+                  {isUkrposhtaDelivery(orderForm.shipping_method)
+                    ? "Індекс відділення Укрпошти"
+                    : "Відділення / точка видачі"}
+
                   {isNovaPoshtaDelivery(orderForm.shipping_method) ? (
                     <select
                       value={orderForm.warehouse_ref}
@@ -705,7 +791,10 @@ function App() {
 
                       {rozetkaDepartments.map((department) => {
                         const departmentId = String(
-                          department.id || department.uuid || department.ref || ""
+                          department.id ||
+                            department.uuid ||
+                            department.ref ||
+                            ""
                         );
 
                         const departmentName =
@@ -723,39 +812,58 @@ function App() {
                       })}
                     </select>
                   ) : (
-                    <input
-                      name="warehouse"
-                      value={orderForm.warehouse}
-                      onChange={handleChange}
-                      placeholder="Індекс Укрпошти, наприклад: 49000"
-                    />
+                    <select
+                      value={orderForm.warehouse_ref}
+                      onChange={(event) => {
+                        const selectedOffice = ukrposhtaOffices.find(
+                          (office) => String(office.postcode) === event.target.value
+                        );
+
+                        if (selectedOffice) {
+                          selectUkrposhtaOffice(selectedOffice);
+                        }
+                      }}
+                    >
+                      <option value="">Оберіть відділення Укрпошти</option>
+
+                      {ukrposhtaOffices.map((office) => (
+                        <option key={office.postcode} value={office.postcode}>
+                          {office.description}
+                        </option>
+                      ))}
+                    </select>
                   )}
                 </label>
               </div>
 
-              {(isNovaPoshtaDelivery(orderForm.shipping_method) ||
-                isUkrposhtaDelivery(orderForm.shipping_method)) &&
+              {isNovaPoshtaDelivery(orderForm.shipping_method) &&
                 npCities.length > 0 && (
                   <div className="suggestions">
                     {npCities.map((city) => (
                       <button
                         type="button"
                         key={city.DeliveryCity || city.Ref}
-                        onClick={() => {
-                          if (isNovaPoshtaDelivery(orderForm.shipping_method)) {
-                            selectNovaPoshtaCity(city);
-                          }
-
-                          if (isUkrposhtaDelivery(orderForm.shipping_method)) {
-                            selectUkrposhtaCity(city);
-                          }
-                        }}
+                        onClick={() => selectNovaPoshtaCity(city)}
                       >
                         {city.Present || city.MainDescription}
                       </button>
                     ))}
                   </div>
                 )}
+                {isUkrposhtaDelivery(orderForm.shipping_method) &&
+                  ukrposhtaCities.length > 0 && (
+                    <div className="suggestions">
+                      {ukrposhtaCities.map((city) => (
+                        <button
+                          type="button"
+                          key={city.id || city.koatuu || city.katottg}
+                          onClick={() => selectUkrposhtaCity(city)}
+                        >
+                          {city.label || city.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
               {isRozetkaDelivery(orderForm.shipping_method) &&
                 rozetkaCities.length > 0 && (
