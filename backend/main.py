@@ -1,3 +1,7 @@
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -66,11 +70,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-
-@app.get("/")
-def home():
-    return {"message": "Telegram shop backend is working"}
 
 
 @app.get("/products")
@@ -392,4 +391,39 @@ async def wayforpay_callback(request: Request, db: Session = Depends(get_db)):
         "status": response_status,
         "time": response_time,
         "signature": response_signature
+    }
+
+FRONTEND_DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+if FRONTEND_DIST_DIR.exists():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=FRONTEND_DIST_DIR / "assets"),
+        name="frontend_assets",
+    )
+
+    @app.get("/")
+    def serve_frontend():
+        return FileResponse(FRONTEND_DIST_DIR / "index.html")
+
+
+    FRONTEND_DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+if FRONTEND_DIST_DIR.exists():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=FRONTEND_DIST_DIR / "assets"),
+        name="frontend_assets",
+    )
+
+
+@app.get("/")
+def serve_frontend():
+    index_file = FRONTEND_DIST_DIR / "index.html"
+
+    if index_file.exists():
+        return FileResponse(index_file)
+
+    return {
+        "message": "Backend працює, але frontend/dist/index.html не знайдено. Виконай npm run build у frontend."
     }
