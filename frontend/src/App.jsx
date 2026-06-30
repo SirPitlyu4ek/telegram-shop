@@ -33,6 +33,10 @@ function App() {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [orderForm, setOrderForm] = useState(initialOrderForm);
 
+  const [cartItems, setCartItems] = useState([]);
+  const [checkoutItems, setCheckoutItems] = useState([]);
+  const [cartOpen, setCartOpen] = useState(false);
+
   const [submitting, setSubmitting] = useState(false);
   const [orderResult, setOrderResult] = useState(null);
   const [paymentUrl, setPaymentUrl] = useState("");
@@ -51,6 +55,24 @@ function App() {
   useEffect(() => {
     loadProducts();
   }, []);
+
+  useEffect(() => {
+    const savedCart = localStorage.getItem("telegram_shop_cart");
+
+    if (savedCart) {
+      try {
+        const parsedCart = JSON.parse(savedCart);
+        setCartItems(Array.isArray(parsedCart) ? parsedCart : []);
+      } catch (error) {
+        console.error("Cart parse error:", error);
+        setCartItems([]);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("telegram_shop_cart", JSON.stringify(cartItems));
+  }, [cartItems]);
 
   function isNovaPoshtaDelivery(method) {
     return method === "novaposhta";
@@ -126,6 +148,7 @@ function App() {
 
     setOrderResult(null);
     setPaymentUrl("");
+    setCheckoutItems([]);
     setError("");
     resetDeliveryLists();
   }
@@ -134,8 +157,58 @@ function App() {
     setSelectedProduct(null);
     setOrderResult(null);
     setPaymentUrl("");
+    setCheckoutItems([]);
     setError("");
     resetDeliveryLists();
+  }
+
+  function openCheckoutFromCart() {
+    if (cartItems.length === 0) {
+      setError("Кошик порожній");
+      return;
+    }
+
+    const telegramUser = getTelegramUser();
+
+    const itemsSnapshot = cartItems.map((item) => ({
+      ...item,
+      id: Number(item.id),
+      price: Number(item.price || 0),
+      quantity: Number(item.quantity || 1),
+    }));
+
+    const itemsCount = itemsSnapshot.reduce(
+      (total, item) => total + Number(item.quantity || 1),
+      0
+    );
+
+    const itemsTotal = itemsSnapshot.reduce(
+      (total, item) =>
+        total + Number(item.price || 0) * Number(item.quantity || 1),
+      0
+    );
+
+    setCheckoutItems(itemsSnapshot);
+
+    setSelectedProduct({
+      id: "cart",
+      name: `Замовлення з кошика (${itemsCount} шт.)`,
+      price: itemsTotal,
+    });
+
+    setOrderForm({
+      ...initialOrderForm,
+      customer_name: telegramUser?.first_name || "",
+      last_name: telegramUser?.last_name || "",
+      telegram_id: telegramUser?.id ? String(telegramUser.id) : "",
+      telegram_username: telegramUser?.username || "",
+    });
+
+    setOrderResult(null);
+    setPaymentUrl("");
+    setError("");
+    resetDeliveryLists();
+    setCartOpen(false);
   }
 
   function handleChange(event) {
@@ -254,11 +327,49 @@ function App() {
     }
   }
 
+  function getNovaPoshtaWarehouseDescription(warehouse) {
+    return (
+      warehouse.description ||
+      warehouse.Description ||
+      warehouse.short_address ||
+      warehouse.ShortAddress ||
+      warehouse.address ||
+      warehouse.Address ||
+      "Відділення Нової пошти"
+    );
+  }
+
+  function getNovaPoshtaWarehouseValue(warehouse) {
+    const explicitValue =
+      warehouse.number ||
+      warehouse.Number ||
+      warehouse.warehouse_number ||
+      warehouse.WarehouseNumber ||
+      warehouse.site_key ||
+      warehouse.SiteKey;
+
+    if (explicitValue) {
+      return String(explicitValue);
+    }
+
+    const description = getNovaPoshtaWarehouseDescription(warehouse);
+    const numberMatch = description.match(/№\s*([0-9]+)/);
+
+    if (numberMatch) {
+      return numberMatch[1];
+    }
+
+    return String(warehouse.ref || warehouse.Ref || "");
+  }
+
   function selectNovaPoshtaWarehouse(warehouse) {
+    const warehouseDescription = getNovaPoshtaWarehouseDescription(warehouse);
+    const warehouseValue = getNovaPoshtaWarehouseValue(warehouse);
+
     setOrderForm((prev) => ({
       ...prev,
-      warehouse: warehouse.description || warehouse.short_address || "",
-      warehouse_ref: warehouse.ref || "",
+      warehouse: warehouseDescription,
+      warehouse_ref: warehouseValue,
     }));
   }
 
@@ -276,7 +387,6 @@ function App() {
       );
 
       const data = await response.json();
-
       setUkrposhtaCities(data?.cities || []);
     } catch (error) {
       console.error("Ukrposhta city search error:", error);
@@ -317,7 +427,6 @@ function App() {
       );
 
       const data = await response.json();
-
       setUkrposhtaOffices(data?.offices || []);
     } catch (error) {
       console.error("Ukrposhta offices error:", error);
@@ -470,8 +579,8 @@ function App() {
   async function handleSubmit(event) {
     event.preventDefault();
 
-    if (!selectedProduct) {
-      setError("Товар не обрано");
+    if (checkoutItems.length === 0) {
+      setError("Кошик порожній");
       return;
     }
 
@@ -517,20 +626,29 @@ function App() {
         email: orderForm.email,
         telegram_id: orderForm.telegram_id || null,
         telegram_username: orderForm.telegram_username || "",
-        product_id: selectedProduct.id,
-        quantity: Number(orderForm.quantity) || 1,
-        shipping_method: orderForm.shipping_method,
-        payment_method: orderForm.payment_method,
+
+        items: checkoutItems.map((item) => ({
+          product_id: Number(item.id),
+          quantity: Number(item.quantity) || 1,
+        })),
+
         city: orderForm.city,
         warehouse: orderForm.warehouse,
+
         city_ref: isUkrposhtaDelivery(orderForm.shipping_method)
           ? null
           : orderForm.city_ref || null,
+
         warehouse_ref: isUkrposhtaDelivery(orderForm.shipping_method)
           ? orderForm.warehouse_ref || orderForm.warehouse.trim()
           : orderForm.warehouse_ref || null,
+
+        payment_method: orderForm.payment_method,
+        shipping_method: orderForm.shipping_method,
         comment: orderForm.comment,
       };
+
+      console.log("Order payload:", payload);
 
       const response = await fetch(`${API_URL}/orders`, {
         method: "POST",
@@ -547,6 +665,7 @@ function App() {
       }
 
       setOrderResult(data);
+      clearCart();
 
       if (orderForm.payment_method === "WayForPay" && data?.order_id) {
         const paymentResponse = await fetch(
@@ -567,6 +686,86 @@ function App() {
     }
   }
 
+  function addToCart(product) {
+    setCartItems((prev) => {
+      const existingItem = prev.find((item) => item.id === product.id);
+
+      if (existingItem) {
+        return prev.map((item) =>
+          item.id === product.id
+            ? {
+                ...item,
+                quantity: Number(item.quantity || 1) + 1,
+              }
+            : item
+        );
+      }
+
+      return [
+        ...prev,
+        {
+          id: product.id,
+          name: getProductName(product),
+          price: getProductPrice(product),
+          quantity: 1,
+        },
+      ];
+    });
+
+    setCartOpen(true);
+  }
+
+  function increaseCartItem(productId) {
+    setCartItems((prev) =>
+      prev.map((item) =>
+        item.id === productId
+          ? {
+              ...item,
+              quantity: Number(item.quantity || 1) + 1,
+            }
+          : item
+      )
+    );
+  }
+
+  function decreaseCartItem(productId) {
+    setCartItems((prev) =>
+      prev
+        .map((item) =>
+          item.id === productId
+            ? {
+                ...item,
+                quantity: Number(item.quantity || 1) - 1,
+              }
+            : item
+        )
+        .filter((item) => item.quantity > 0)
+    );
+  }
+
+  function removeCartItem(productId) {
+    setCartItems((prev) => prev.filter((item) => item.id !== productId));
+  }
+
+  function clearCart() {
+    setCartItems([]);
+  }
+
+  function getCartTotal() {
+    return cartItems.reduce(
+      (total, item) =>
+        total + Number(item.price || 0) * Number(item.quantity || 1),
+      0
+    );
+  }
+
+  function getCartItemsCount() {
+    return cartItems.reduce(
+      (total, item) => total + Number(item.quantity || 1),
+      0
+    );
+  }
+
   function getProductPrice(product) {
     return product.price || product.cost || 0;
   }
@@ -578,8 +777,21 @@ function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1>Telegram-магазин MyCar</h1>
-        <p>Каталог товарів</p>
+        <div>
+          <h1>Telegram-магазин MyCar</h1>
+          <p>Каталог товарів</p>
+        </div>
+
+        <button
+          type="button"
+          className="cart-button"
+          onClick={() => setCartOpen(true)}
+        >
+          🛒 Кошик
+          {getCartItemsCount() > 0 && (
+            <span className="cart-count">{getCartItemsCount()}</span>
+          )}
+        </button>
       </header>
 
       <main className="main">
@@ -604,15 +816,102 @@ function App() {
                 <button
                   type="button"
                   className="order-button"
-                  onClick={() => openOrderModal(product)}
+                  onClick={() => addToCart(product)}
                 >
-                  Замовити
+                  Додати в кошик
                 </button>
               </div>
             ))}
           </div>
         )}
       </main>
+
+      {cartOpen && (
+        <div className="modal-backdrop">
+          <div className="order-modal">
+            <button
+              type="button"
+              className="modal-close"
+              onClick={() => setCartOpen(false)}
+            >
+              ×
+            </button>
+
+            <h2 className="modal-title">Кошик</h2>
+
+            {cartItems.length === 0 ? (
+              <div className="empty-cart">
+                <p>Кошик порожній.</p>
+              </div>
+            ) : (
+              <>
+                <div className="cart-list">
+                  {cartItems.map((item) => (
+                    <div className="cart-item" key={item.id}>
+                      <div className="cart-item-info">
+                        <strong>{item.name}</strong>
+                        <span>{item.price} грн</span>
+                      </div>
+
+                      <div className="cart-item-controls">
+                        <button
+                          type="button"
+                          onClick={() => decreaseCartItem(item.id)}
+                        >
+                          −
+                        </button>
+
+                        <span>{item.quantity}</span>
+
+                        <button
+                          type="button"
+                          onClick={() => increaseCartItem(item.id)}
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      <div className="cart-item-total">
+                        {Number(item.price || 0) * Number(item.quantity || 1)} грн
+                      </div>
+
+                      <button
+                        type="button"
+                        className="cart-remove"
+                        onClick={() => removeCartItem(item.id)}
+                      >
+                        Видалити
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="cart-summary">
+                  <strong>Разом: {getCartTotal()} грн</strong>
+                </div>
+
+                <div className="cart-actions">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={clearCart}
+                  >
+                    Очистити кошик
+                  </button>
+
+                  <button
+                    type="button"
+                    className="submit-button"
+                    onClick={openCheckoutFromCart}
+                  >
+                    Оформити замовлення
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {selectedProduct && (
         <div className="modal-backdrop">
@@ -632,228 +931,253 @@ function App() {
               <span>{getProductPrice(selectedProduct)} грн</span>
             </div>
 
-            <form className="order-form" onSubmit={handleSubmit}>
-              <div className="form-row">
-                <label>
-                  Ім’я *
-                  <input
-                    name="customer_name"
-                    value={orderForm.customer_name}
-                    onChange={handleChange}
-                    autoComplete="given-name"
-                  />
-                </label>
+            {orderResult ? (
+              <div className="success-message">
+                <strong>✅ Дякуємо! Ваше замовлення прийнято.</strong>
+                <p>Відправка відбудеться вже сьогодні.</p>
+                <p>Наш менеджер зв’яжеться з вами за потреби.</p>
 
-                <label>
-                  Прізвище
-                  <input
-                    name="last_name"
-                    value={orderForm.last_name}
-                    onChange={handleChange}
-                    autoComplete="family-name"
-                  />
-                </label>
+                {orderResult.order_id && (
+                  <p>Номер замовлення: {orderResult.order_id}</p>
+                )}
               </div>
+            ) : (
+              <form className="order-form" onSubmit={handleSubmit}>
+                <div className="form-row">
+                  <label>
+                    Ім’я *
+                    <input
+                      name="customer_name"
+                      value={orderForm.customer_name}
+                      onChange={handleChange}
+                      autoComplete="given-name"
+                    />
+                  </label>
 
-              <div className="form-row">
+                  <label>
+                    Прізвище
+                    <input
+                      name="last_name"
+                      value={orderForm.last_name}
+                      onChange={handleChange}
+                      autoComplete="family-name"
+                    />
+                  </label>
+                </div>
+
+                <div className="form-row">
+                  <label>
+                    По-батькові
+                    <input
+                      name="middle_name"
+                      value={orderForm.middle_name}
+                      onChange={handleChange}
+                    />
+                  </label>
+
+                  <label>
+                    Телефон *
+                    <input
+                      name="phone"
+                      value={orderForm.phone}
+                      onChange={handleChange}
+                      placeholder="+380..."
+                      autoComplete="tel"
+                    />
+                  </label>
+                </div>
+
                 <label>
-                  По-батькові
+                  Email
                   <input
-                    name="middle_name"
-                    value={orderForm.middle_name}
+                    name="email"
+                    value={orderForm.email}
                     onChange={handleChange}
+                    autoComplete="email"
                   />
                 </label>
 
-                <label>
-                  Телефон *
-                  <input
-                    name="phone"
-                    value={orderForm.phone}
-                    onChange={handleChange}
-                    placeholder="+380..."
-                    autoComplete="tel"
-                  />
-                </label>
-              </div>
-
-              <label>
-                Email
-                <input
-                  name="email"
-                  value={orderForm.email}
-                  onChange={handleChange}
-                  autoComplete="email"
-                />
-              </label>
-
-              <div className="form-row">
-                <label>
-                  Спосіб доставки *
-                  <select
-                    name="shipping_method"
-                    value={orderForm.shipping_method}
-                    onChange={handleChange}
-                  >
-                    <option value="novaposhta">Нова пошта</option>
-                    <option value="rozetka">Rozetka Delivery</option>
-                    <option value="ukrposhta">Укрпошта</option>
-                  </select>
-                </label>
-
-                <label>
-                  Спосіб оплати *
-                  <select
-                    name="payment_method"
-                    value={orderForm.payment_method}
-                    onChange={handleChange}
-                  >
-                    <option
-                      value="Накладений платіж"
-                      disabled={isUkrposhtaDelivery(orderForm.shipping_method)}
-                    >
-                      Накладений платіж
-                    </option>
-
-                    <option value="WayForPay">WayForPay</option>
-
-                    <option value="Оплата на рахунок">
-                      Оплата на рахунок
-                    </option>
-                  </select>
-                </label>
-              </div>
-
-              <div className="form-row">
-                <label>
-                  Місто / населений пункт
-                  <input
-                    name="city"
-                    value={orderForm.city}
-                    onChange={handleChange}
-                    placeholder={
-                      isNovaPoshtaDelivery(orderForm.shipping_method)
-                        ? "Почніть вводити місто Нової пошти"
-                        : isRozetkaDelivery(orderForm.shipping_method)
-                        ? "Почніть вводити місто Rozetka"
-                        : "Почніть вводити місто або село"
-                    }
-                  />
-                </label>
-
-                <label>
-                  {isUkrposhtaDelivery(orderForm.shipping_method)
-                    ? "Індекс відділення Укрпошти"
-                    : "Відділення / точка видачі"}
-
-                  {isNovaPoshtaDelivery(orderForm.shipping_method) ? (
+                <div className="form-row">
+                  <label>
+                    Спосіб доставки *
                     <select
-                      value={orderForm.warehouse_ref}
-                      onChange={(event) => {
-                        const selectedWarehouse = npWarehouses.find(
-                          (warehouse) => warehouse.ref === event.target.value
-                        );
-
-                        if (selectedWarehouse) {
-                          selectNovaPoshtaWarehouse(selectedWarehouse);
-                        }
-                      }}
+                      name="shipping_method"
+                      value={orderForm.shipping_method}
+                      onChange={handleChange}
                     >
-                      <option value="">
-                        Оберіть відділення або поштомат
+                      <option value="novaposhta">Нова пошта</option>
+                      <option value="rozetka">Rozetka Delivery</option>
+                      <option value="ukrposhta">Укрпошта</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    Спосіб оплати *
+                    <select
+                      name="payment_method"
+                      value={orderForm.payment_method}
+                      onChange={handleChange}
+                    >
+                      <option
+                        value="Накладений платіж"
+                        disabled={isUkrposhtaDelivery(orderForm.shipping_method)}
+                      >
+                        Накладений платіж
                       </option>
 
-                      {npWarehouses.map((warehouse) => (
-                        <option key={warehouse.ref} value={warehouse.ref}>
-                          {warehouse.description}
-                        </option>
-                      ))}
-                    </select>
-                  ) : isRozetkaDelivery(orderForm.shipping_method) ? (
-                    <select
-                      value={orderForm.warehouse_ref}
-                      onChange={(event) => {
-                        const selectedDepartment = rozetkaDepartments.find(
-                          (department) => {
-                            const departmentId = String(
-                              department.id ||
-                                department.uuid ||
-                                department.ref ||
-                                ""
-                            );
+                      <option value="WayForPay">WayForPay</option>
 
-                            return departmentId === event.target.value;
+                      <option value="Оплата на рахунок">
+                        Оплата на рахунок
+                      </option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="form-row">
+                  <label>
+                    Місто / населений пункт
+                    <input
+                      name="city"
+                      value={orderForm.city}
+                      onChange={handleChange}
+                      placeholder={
+                        isNovaPoshtaDelivery(orderForm.shipping_method)
+                          ? "Почніть вводити місто Нової пошти"
+                          : isRozetkaDelivery(orderForm.shipping_method)
+                          ? "Почніть вводити місто Rozetka"
+                          : "Почніть вводити місто або село"
+                      }
+                    />
+                  </label>
+
+                  <label>
+                    {isUkrposhtaDelivery(orderForm.shipping_method)
+                      ? "Індекс відділення Укрпошти"
+                      : "Відділення / точка видачі"}
+
+                    {isNovaPoshtaDelivery(orderForm.shipping_method) ? (
+                      <select
+                        value={String(orderForm.warehouse_ref || "")}
+                        onChange={(event) => {
+                          const selectedWarehouse = npWarehouses.find(
+                            (warehouse) =>
+                              getNovaPoshtaWarehouseValue(warehouse) ===
+                              event.target.value
+                          );
+
+                          if (selectedWarehouse) {
+                            selectNovaPoshtaWarehouse(selectedWarehouse);
                           }
-                        );
-
-                        if (selectedDepartment) {
-                          selectRozetkaDepartment(selectedDepartment);
-                        }
-                      }}
-                    >
-                      <option value="">Оберіть точку видачі Rozetka</option>
-
-                      {rozetkaDepartments.map((department) => {
-                        const departmentId = String(
-                          department.id ||
-                            department.uuid ||
-                            department.ref ||
-                            ""
-                        );
-
-                        const departmentName =
-                          department.name ||
-                          department.title ||
-                          department.public_name ||
-                          department.address ||
-                          "Точка видачі Rozetka";
-
-                        return (
-                          <option key={departmentId} value={departmentId}>
-                            {departmentName}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  ) : (
-                    <select
-                      value={orderForm.warehouse_ref}
-                      onChange={(event) => {
-                        const selectedOffice = ukrposhtaOffices.find(
-                          (office) => String(office.postcode) === event.target.value
-                        );
-
-                        if (selectedOffice) {
-                          selectUkrposhtaOffice(selectedOffice);
-                        }
-                      }}
-                    >
-                      <option value="">Оберіть відділення Укрпошти</option>
-
-                      {ukrposhtaOffices.map((office) => (
-                        <option key={office.postcode} value={office.postcode}>
-                          {office.description}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </label>
-              </div>
-
-              {isNovaPoshtaDelivery(orderForm.shipping_method) &&
-                npCities.length > 0 && (
-                  <div className="suggestions">
-                    {npCities.map((city) => (
-                      <button
-                        type="button"
-                        key={city.DeliveryCity || city.Ref}
-                        onClick={() => selectNovaPoshtaCity(city)}
+                        }}
                       >
-                        {city.Present || city.MainDescription}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                        <option value="">
+                          Оберіть відділення або поштомат
+                        </option>
+
+                        {npWarehouses.map((warehouse, index) => {
+                          const warehouseValue =
+                            getNovaPoshtaWarehouseValue(warehouse);
+                          const warehouseDescription =
+                            getNovaPoshtaWarehouseDescription(warehouse);
+
+                          return (
+                            <option
+                              key={warehouse.ref || warehouse.Ref || `${warehouseValue}-${index}`}
+                              value={warehouseValue}
+                            >
+                              {warehouseDescription}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    ) : isRozetkaDelivery(orderForm.shipping_method) ? (
+                      <select
+                        value={orderForm.warehouse_ref}
+                        onChange={(event) => {
+                          const selectedDepartment = rozetkaDepartments.find(
+                            (department) => {
+                              const departmentId = String(
+                                department.id ||
+                                  department.uuid ||
+                                  department.ref ||
+                                  ""
+                              );
+
+                              return departmentId === event.target.value;
+                            }
+                          );
+
+                          if (selectedDepartment) {
+                            selectRozetkaDepartment(selectedDepartment);
+                          }
+                        }}
+                      >
+                        <option value="">Оберіть точку видачі Rozetka</option>
+
+                        {rozetkaDepartments.map((department) => {
+                          const departmentId = String(
+                            department.id ||
+                              department.uuid ||
+                              department.ref ||
+                              ""
+                          );
+
+                          const departmentName =
+                            department.name ||
+                            department.title ||
+                            department.public_name ||
+                            department.address ||
+                            "Точка видачі Rozetka";
+
+                          return (
+                            <option key={departmentId} value={departmentId}>
+                              {departmentName}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    ) : (
+                      <select
+                        value={orderForm.warehouse_ref}
+                        onChange={(event) => {
+                          const selectedOffice = ukrposhtaOffices.find(
+                            (office) =>
+                              String(office.postcode) === event.target.value
+                          );
+
+                          if (selectedOffice) {
+                            selectUkrposhtaOffice(selectedOffice);
+                          }
+                        }}
+                      >
+                        <option value="">Оберіть відділення Укрпошти</option>
+
+                        {ukrposhtaOffices.map((office) => (
+                          <option key={office.postcode} value={office.postcode}>
+                            {office.description}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </label>
+                </div>
+
+                {isNovaPoshtaDelivery(orderForm.shipping_method) &&
+                  npCities.length > 0 && (
+                    <div className="suggestions">
+                      {npCities.map((city) => (
+                        <button
+                          type="button"
+                          key={city.DeliveryCity || city.Ref}
+                          onClick={() => selectNovaPoshtaCity(city)}
+                        >
+                          {city.Present || city.MainDescription}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                 {isUkrposhtaDelivery(orderForm.shipping_method) &&
                   ukrposhtaCities.length > 0 && (
                     <div className="suggestions">
@@ -869,72 +1193,61 @@ function App() {
                     </div>
                   )}
 
-              {isRozetkaDelivery(orderForm.shipping_method) &&
-                rozetkaCities.length > 0 && (
-                  <div className="suggestions">
-                    {rozetkaCities.map((city) => {
-                      const cityId = String(
-                        city.id || city.uuid || city.ref || ""
-                      );
+                {isRozetkaDelivery(orderForm.shipping_method) &&
+                  rozetkaCities.length > 0 && (
+                    <div className="suggestions">
+                      {rozetkaCities.map((city) => {
+                        const cityId = String(
+                          city.id || city.uuid || city.ref || ""
+                        );
 
-                      const cityName =
-                        city.name ||
-                        city.title ||
-                        city.public_name ||
-                        "Місто Rozetka";
+                        const cityName =
+                          city.name ||
+                          city.title ||
+                          city.public_name ||
+                          "Місто Rozetka";
 
-                      const regionName = city.region_name
-                        ? `, ${city.region_name} обл.`
-                        : "";
+                        const regionName = city.region_name
+                          ? `, ${city.region_name} обл.`
+                          : "";
 
-                      return (
-                        <button
-                          type="button"
-                          key={cityId}
-                          onClick={() => selectRozetkaCity(city)}
-                        >
-                          {cityName}
-                          {regionName}
-                        </button>
-                      );
-                    })}
-                  </div>
+                        return (
+                          <button
+                            type="button"
+                            key={cityId}
+                            onClick={() => selectRozetkaCity(city)}
+                          >
+                            {cityName}
+                            {regionName}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                {deliveryLoading && (
+                  <p className="delivery-loading">Завантаження доставки...</p>
                 )}
 
-              {deliveryLoading && (
-                <p className="delivery-loading">Завантаження доставки...</p>
-              )}
+                <label>
+                  Коментар
+                  <textarea
+                    name="comment"
+                    value={orderForm.comment}
+                    onChange={handleChange}
+                    rows="4"
+                  />
+                </label>
 
-              <label>
-                Коментар
-                <textarea
-                  name="comment"
-                  value={orderForm.comment}
-                  onChange={handleChange}
-                  rows="4"
-                />
-              </label>
-
-              <button
-                type="submit"
-                className="submit-button"
-                disabled={submitting}
-              >
-                {submitting ? "Створення..." : "Створити замовлення"}
-              </button>
-            </form>
-
-          {orderResult && (
-            <div className="success-message">
-              <strong>✅ Дякуємо! Ваше замовлення прийнято.</strong>
-              <p>Відправка відбудеться вже сьогодні.</p>
-              <p>Наш менеджер зв’яжеться з вами за потреби.</p>
-
-              {orderResult.order_id && (
-                <p>Номер замовлення: {orderResult.order_id}</p>
-              )}
-            </div>
-          )}
+                <button
+                  type="submit"
+                  className="submit-button"
+                  disabled={submitting}
+                >
+                  {submitting ? "Створення..." : "Створити замовлення"}
+                </button>
+              </form>
+            )}
 
             {paymentUrl && (
               <div className="payment-box">

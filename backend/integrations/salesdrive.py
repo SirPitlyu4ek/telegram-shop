@@ -8,9 +8,9 @@ SALESDRIVE_API_KEY = os.getenv("SALESDRIVE_API_KEY")
 SALESDRIVE_DOMAIN = os.getenv("SALESDRIVE_DOMAIN")
 
 
-def send_order_to_salesdrive(order, product):
+def send_order_to_salesdrive(order, product, order_products=None):
     url = f"https://{SALESDRIVE_DOMAIN}/handler/"
-    
+
     shipping_method_parameters = {
         "novaposhta": "Нова Пошта",
         "rozetka": "Видача у ROZETKA",
@@ -44,6 +44,40 @@ def send_order_to_salesdrive(order, product):
         order.payment_method
     )
 
+    # Якщо прийшов старий формат одного товару — робимо з нього список
+    if not order_products:
+        order_products = [
+            {
+                "product": product,
+                "quantity": order.quantity,
+                "total": product.price * order.quantity
+            }
+        ]
+
+    salesdrive_products = []
+
+    for item in order_products:
+        item_product = item["product"]
+        item_quantity = item["quantity"]
+
+        salesdrive_products.append(
+            {
+                "id": str(item_product.id),
+                "name": item_product.name,
+                "costPerItem": int(item_product.price),
+                "amount": int(item_quantity),
+                "description": "Товар із Telegram-магазину",
+                "sku": str(item_product.id)
+            }
+        )
+
+    cart_text = "\n".join(
+        [
+            f"- {item['product'].name} × {item['quantity']} = {item['total']} грн"
+            for item in order_products
+        ]
+    )
+
     payload = {
         "form": SALESDRIVE_API_KEY,
         "getResultData": 1,
@@ -54,16 +88,7 @@ def send_order_to_salesdrive(order, product):
         "phone": order.phone,
         "email": order.email or "",
 
-        "products": [
-            {
-                "id": str(product.id),
-                "name": product.name,
-                "costPerItem": int(product.price),
-                "amount": int(order.quantity),
-                "description": "Товар із Telegram-магазину",
-                "sku": str(product.id)
-            }
-        ],
+        "products": salesdrive_products,
 
         "payment_method": payment_method_parameter,
         "shipping_method": shipping_method_parameter,
@@ -71,6 +96,8 @@ def send_order_to_salesdrive(order, product):
 
         "comment": (
             f"{order.comment or ''}\n\n"
+            f"Товари:\n{cart_text}\n\n"
+            f"Разом: {order.total_price} грн\n\n"
             f"Спосіб доставки: {shipping_method_name}\n"
             f"Місто: {order.city}\n"
             f"Відділення: {order.warehouse}"
@@ -94,14 +121,12 @@ def send_order_to_salesdrive(order, product):
             "WarehouseNumber": order.warehouse_ref
         }
 
-
     if order.shipping_method == "rozetka":
         payload["rozetka_delivery"] = {
             "city": order.city_ref,
             "WarehouseNumber": order.warehouse_ref,
             "payer": "recipient"
         }
-
 
     if order.shipping_method == "ukrposhta":
         payload["ukrposhta"] = {

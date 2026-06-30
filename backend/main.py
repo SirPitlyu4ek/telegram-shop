@@ -45,6 +45,11 @@ app.add_middleware(
 )
 
 
+class OrderItemCreate(BaseModel):
+    product_id: int
+    quantity: int = 1
+
+
 class OrderCreate(BaseModel):
     customer_name: str
     last_name: str | None = None
@@ -53,8 +58,14 @@ class OrderCreate(BaseModel):
     email: str | None = None
     telegram_id: str | None = None
     telegram_username: str | None = None
-    product_id: int
-    quantity: int
+
+    # Старий формат одного товару — залишаємо для сумісності
+    product_id: int | None = None
+    quantity: int | None = 1
+
+    # Новий формат кошика
+    items: list[OrderItemCreate] | None = None
+
     city: str | None = None
     warehouse: str | None = None
     city_ref: str | None = None
@@ -91,15 +102,75 @@ def get_products(db: Session = Depends(get_db)):
 
 @app.post("/orders")
 def create_order(order: OrderCreate, db: Session = Depends(get_db)):
-    product = db.query(Product).filter(Product.id == order.product_id).first()
-
-    if product is None:
-        return {"error": "Product not found"}
-
     if order.shipping_method == "ukrposhta" and order.payment_method == "Накладений платіж":
         return {"error": "Для Укрпошти доступна тільки повна передоплата"}
 
-    total_price = product.price * order.quantity
+    # Підтримка нового формату кошика items[]
+    if order.items and len(order.items) > 0:
+        raw_items = order.items
+
+    # Підтримка старого формату product_id + quantity
+    elif order.product_id:
+        raw_items = [
+            OrderItemCreate(
+                product_id=order.product_id,
+                quantity=order.quantity or 1
+            )
+        ]
+
+    else:
+        return {"error": "Cart is empty"}
+
+    # Об'єднуємо однакові товари, якщо випадково прийшли дублікати
+    quantities_by_product_id = {}
+
+    for item in raw_items:
+        if item.quantity <= 0:
+            return {
+                "error": f"Некоректна кількість товару product_id={item.product_id}"
+            }
+
+        quantities_by_product_id[item.product_id] = (
+            quantities_by_product_id.get(item.product_id, 0) + item.quantity
+        )
+
+    product_ids = list(quantities_by_product_id.keys())
+
+    products = db.query(Product).filter(Product.id.in_(product_ids)).all()
+    products_by_id = {product.id: product for product in products}
+
+    missing_product_ids = [
+        product_id
+        for product_id in product_ids
+        if product_id not in products_by_id
+    ]
+
+    if missing_product_ids:
+        return {
+            "error": "Some products not found",
+            "missing_product_ids": missing_product_ids
+        }
+
+    order_products = []
+
+    total_price = 0
+
+    for product_id, quantity in quantities_by_product_id.items():
+        product = products_by_id[product_id]
+        item_total = product.price * quantity
+        total_price += item_total
+
+        order_products.append(
+            {
+                "product": product,
+                "quantity": quantity,
+                "total": item_total
+            }
+        )
+
+    first_order_item = order_products[0]
+    first_product = first_order_item["product"]
+    first_quantity = first_order_item["quantity"]
 
     new_order = Order(
         customer_name=order.customer_name,
@@ -109,9 +180,14 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
         email=order.email,
         telegram_id=order.telegram_id,
         telegram_username=order.telegram_username,
-        product_id=order.product_id,
-        quantity=order.quantity,
+
+        # Старі поля в таблиці залишаємо для сумісності
+        product_id=first_product.id,
+        quantity=first_quantity,
+
+        # А загальну суму записуємо по всьому кошику
         total_price=total_price,
+
         city=order.city,
         warehouse=order.warehouse,
         city_ref=order.city_ref,
@@ -133,7 +209,11 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
     }
 
     try:
-        salesdrive_result = send_order_to_salesdrive(new_order, product)
+        salesdrive_result = send_order_to_salesdrive(
+            new_order,
+            first_product,
+            order_products=order_products
+        )
 
         try:
             salesdrive_response = json.loads(salesdrive_result["response"])
@@ -162,7 +242,7 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
 
         except Exception as error:
             print("SalesDrive response parse error:", error)
-            
+
             salesdrive_result["parse_error"] = str(error)
 
     except Exception as error:
@@ -175,6 +255,8 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
 
     return {
         "id": new_order.id,
+        "order_id": new_order.id,
+
         "customer_name": new_order.customer_name,
         "last_name": new_order.last_name,
         "middle_name": new_order.middle_name,
@@ -182,11 +264,24 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
         "email": new_order.email,
         "telegram_id": new_order.telegram_id,
         "telegram_username": new_order.telegram_username,
+
         "product": {
-            "id": product.id,
-            "name": product.name,
-            "price": product.price
+            "id": first_product.id,
+            "name": first_product.name,
+            "price": first_product.price
         },
+
+        "items": [
+            {
+                "product_id": item["product"].id,
+                "name": item["product"].name,
+                "price": item["product"].price,
+                "quantity": item["quantity"],
+                "total": item["total"]
+            }
+            for item in order_products
+        ],
+
         "quantity": new_order.quantity,
         "total_price": new_order.total_price,
         "shipping_method": new_order.shipping_method,
