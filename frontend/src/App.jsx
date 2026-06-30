@@ -924,14 +924,17 @@ function App() {
               </button>
             </form>
 
-            {orderResult && (
-              <div className="success-message">
-                <strong>Замовлення створено.</strong>
-                {orderResult.order_id && (
-                  <p>Номер замовлення: {orderResult.order_id}</p>
-                )}
-              </div>
-            )}
+          {orderResult && (
+            <div className="success-message">
+              <strong>✅ Дякуємо! Ваше замовлення прийнято.</strong>
+              <p>Відправка відбудеться вже сьогодні.</p>
+              <p>Наш менеджер зв’яжеться з вами за потреби.</p>
+
+              {orderResult.order_id && (
+                <p>Номер замовлення: {orderResult.order_id}</p>
+              )}
+            </div>
+          )}
 
             {paymentUrl && (
               <div className="payment-box">
